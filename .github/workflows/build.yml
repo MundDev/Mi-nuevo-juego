@@ -8,30 +8,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Java JDK 17
-        uses: actions/setup-java@v4
+        
+      - name: PWABuilder Action - Generate APK
+        uses: pwa-builder/pwa-builder-action@v2.2.0
         with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install Bubblewrap CLI
-        run: npm i -g @bubblewrap/cli
-
-      - name: Build TWA directly
-        run: |
-          echo "Y" | bubblewrap build --manifest=https://MundDev.github.io/fuga-de-resonancia/manifest.json
-
-      - name: Subir APK como artifact
+          url: 'https://MundDev.github.io/fuga-de-resonancia/'
+          manifest_url: 'https://MundDev.github.io/fuga-de-resonancia/manifest.json'
+          package_id: 'com.munddev.fugaresonancia'
+          name: 'Fuga de Resonancia 1.2'
+          app_version: '1.2.0'
+          
+      - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
           name: FugaResonancia-v1.2-APK
-          path: ./app-release-signed.apk
-          retention-days: 30
+          path: pwabuilder-release.apk
