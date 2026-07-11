@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+<title>Fuga de Resonancia 1.2</title>
+<link rel="manifest" href="manifest.json">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+    <style>
+        body { font-family: 'Consolas', monospace; background-color: #1a1a2e; color: #fff; display: flex; flex-direction: column; align-items: center; padding: 10px; margin: 0; user-select: none; }
+        #game-panel { max-width: 400px; background-color: #2c2c4d; border-radius: 10px; box-shadow: 0 15px rgba(0, 255, 255, 0.4); padding: 15px; text-align: center; }
+        h1 { color: #00ffff; font-size: 1.4em; margin-bottom: 10px; }
+        #game-canvas { border: 2px solid #00ff99; background-color: #0d0d1a; display: block; margin: 0 auto; cursor: default; }
+        #btn-start { width: 100%; margin-top: 15px; padding: 10px; background-color: #00ff99; color: #1a1a2e; border: none; border-radius: 5px; font-size: 1.1em; font-weight: bold; }
+        #info-display { font-size: 1.1em; margin-bottom: 10px; min-height: 20px; }
+
+        /* CONTROLES NUEVOS - JOYSTICK + BOTONES LATERALES */
+        #controls-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            margin-top: 15px;
+            gap: 10px;
+        }
+
+        #joystick-area { position: relative; width: 120px; height: 120px; flex-shrink: 0; }
+        #joystick-base { width: 120px; height: 120px; background: rgba(136, 170, 255, 0.3); border: 2px solid #88aaff; border-radius: 50%; position: absolute; }
+        #joystick-stick { width: 50px; height: 50px; background: #88aaff; border-radius: 50%; position: absolute; top: 35px; left: 35px; touch-action: none; }
+
+  .side-btn {
+            flex: 1;
+            height: 60px;
+            font-size: 0.85em;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            padding: 8px;
+        }
+        #shop-btn { background-color: #00ccff; color: #1a1a2e; }
+        #ability-btn { background-color: #ffaa00; color: #1a1a2e; display: none; }
+
+        #shop-view { display: none; padding: 10px; border: 1px solid #00ffff; border-radius: 5px; margin-top: 10px; }
+  .shop-item { padding: 8px; margin-bottom: 8px; border-bottom: 1px dashed #4a4a7a; display: flex; justify-content: space-between; align-items: center; }
+  .shop-item button { background-color: #00ff99; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="game-panel">
+        <h1>Fuga de Resonancia 4.0</h1>
+        <div id="info-display">
+            Tiempo: <span id="time-val">0.0</span>s | Puntos: <span id="score-val">0</span> | Ronda: <span id="round-val">1</span>
+        </div>
+
+        <canvas id="game-canvas" width="300" height="400"></canvas>
+
+        <div id="controls-container">
+            <button id="shop-btn" class="side-btn">TIENDA</button>
+
+            <div id="joystick-area">
+                <div id="joystick-base"></div>
+                <div id="joystick-stick"></div>
+            </div>
+
+            <button id="ability-btn" class="side-btn">HABILIDAD</button>
+        </div>
+
+        <div id="shop-view">
+            <h2>Tienda de Balls</h2>
+            <p>Puntos Disponibles: <span id="shop-score-val">0</span></p>
+            <div id="shop-items"></div>
+            <button onclick="hideShop()" style="background-color: #ff4d4d; color: white; border: none; padding: 8px; width: 100%; margin-top: 10px;">Volver al Juego</button>
+        </div>
+
+        <button id="btn-start">INICIAR ESCAPE</button>
+    </div>
+
+<script>
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const CANVAS_WIDTH = 300;
+    const CANVAS_HEIGHT = 400;
+
+    // === SISTEMA DE SONIDO ===
+    let audioCtx;
+    function initAudio() {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    function playSound(type) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'start') { // BIP inicio
+            osc.frequency.value = 650;
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+        } else if (type === 'pickup') { // PLING powerup
+            osc.frequency.value = 800;
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        } else if (type === 'death') { // POW muerte
+            osc.frequency.value = 800;
+            osc.type = 'sawtooth';
+            gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+        } else if (type === 'ability') { // WHOOSH habilidad
+            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+        } else if (type === 'round') { // TIC nueva ronda
+            osc.frequency.value = 800;
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        } else if (type === 'shoot') { // ZAP disparo enemigo
+            osc.frequency.value = 700;
+            osc.type = 'square';
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        }
+    }
+
+    let player = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, radius: 10, color: '#00ff00', speed: 5, dx: 0, dy: 0, shield: false, skin: 'green', skinsOwned: ['green'] };
+    let enemy = { x: 50, y: 50, radius: 15, color: '#ff0000', baseSpeed: 1.5, speed: 1.5, enraged: false, attackTimer: 0, frozen: false };
+    let powerUps = [];
+    let projectiles = [];
+    let score = 0;
+    let sessionScore = 0;
+    let time = 0;
+    let currentRound = 1;
+    let gameInterval;
+    let spawnInterval;
+    let gameState = 'ready';
+    let timerRewardGiven = false;
+    let lastScoreTime = 0;
+
+    let ability = {
+        active: false,
+        cooldown: 0,
+        maxCooldown: 15,
+        duration: 5,
+        isAvailable: false,
+        originalEnemySpeed: 0,
+        originalPlayerSpeed: 0,
+    };
+
+    const SKINS = {
+        green: { color: '#00ff00', name: 'Ball Básica', cost: 0, ability: null, multiplier: 1.0, speedBonus: 0 },
+        blue: { color: '#00ccff', name: 'Ball Azul', cost: 350, ability: 'Carrera Rápida', multiplier: 1.0, speedBonus: 0 },
+        orange: { color: '#ffa500', name: 'Ball Naranja', cost: 800, ability: 'Carrera Lenta', multiplier: 1.15, speedBonus: 0.5 },
+        golden: { color: '#ffd700', name: 'Ball Dorada', cost: 1400, ability: 'Congelar Enemigo', multiplier: 1.25, speedBonus: 0 },
+        silver: { color: '#c0c0c0', name: 'Ball Plateada', cost: 2500, ability: 'Corte en Dos', multiplier: 1.40, speedBonus: 1.5 },
+        purple: { color: '#800080', name: 'Ball Morada', cost: 5000, ability: 'Detener el Tiempo', multiplier: 1.50, speedBonus: 0 }
+    };
+
+    const SHOP_ITEMS = {
+        speedBoost: { name: 'Mejora de Velocidad', cost: 750, ability: '+1 Velocidad Permanente', purchased: 0 }
+    };
+
+    const timeVal = document.getElementById('time-val');
+    const scoreVal = document.getElementById('score-val');
+    const roundVal = document.getElementById('round-val');
+    const btnStart = document.getElementById('btn-start');
+    const infoDisplay = document.getElementById('info-display');
+    const shopView = document.getElementById('shop-view');
+    const shopScoreVal = document.getElementById('shop-score-val');
+    const abilityBtn = document.getElementById('ability-btn');
+
+    // === JOYSTICK LOGIC ===
+    const joystick = document.getElementById('joystick-stick');
+    const joystickBase = document.getElementById('joystick-base');
+    let joystickActive = false;
+    let joystickCenter = { x: 60, y: 60 };
+    const joystickRadius = 35;
+
+    function handleJoystickStart(e) {
+        if (gameState!== 'active' &&!(gameState === 'paused' && player.skin === 'purple')) return;
+        e.preventDefault();
+        joystickActive = true;
+    }
+
+    function handleJoystickMove(e) {
+        if (!joystickActive) return;
+        e.preventDefault();
+        const touch = e.touches? e.touches[0] : e;
+        const rect = joystickBase.getBoundingClientRect();
+        let x = touch.clientX - rect.left - joystickCenter.x;
+        let y = touch.clientY - rect.top - joystickCenter.y;
+        const distance = Math.sqrt(x*x + y*y);
+        if (distance > joystickRadius) {
+            x = (x / distance) * joystickRadius;
+            y = (y / distance) * joystickRadius;
+        }
+        joystick.style.transform = `translate(${x}px, ${y}px)`;
+        player.dx = (x / joystickRadius) * player.speed;
+        player.dy = (y / joystickRadius) * player.speed;
+    }
+
+    function handleJoystickEnd(e) {
+        e.preventDefault();
+        joystickActive = false;
+        joystick.style.transform = `translate(0px, 0px)`;
+        player.dx = 0;
+        player.dy = 0;
+    }
+
+    joystick.addEventListener('touchstart', handleJoystickStart, {passive: false});
+    joystick.addEventListener('touchmove', handleJoystickMove, {passive: false});
+    joystick.addEventListener('touchend', handleJoystickEnd, {passive: false});
+    joystick.addEventListener('mousedown', handleJoystickStart);
+    document.addEventListener('mousemove', handleJoystickMove);
+    document.addEventListener('mouseup', handleJoystickEnd);
+
+    // === RESTO DEL JUEGO IGUAL ===
+    function activateAbility() {
+        if (!ability.isAvailable || ability.cooldown > 0 || ability.active) return;
+        initAudio(); playSound('ability');
+        const skinKey = player.skin;
+        const skill = SKINS[skinKey].ability;
+        ability.originalEnemySpeed = enemy.speed;
+        ability.originalPlayerSpeed = player.speed;
+        ability.active = true;
+        if (skill === 'Carrera Rápida') {
+            ability.duration = 5;
+            player.speed *= 1.75;
+            infoDisplay.textContent = '¡Carrera Rápida Activada!';
+        } else if (skill === 'Carrera Lenta') {
+            ability.duration = 9;
+            player.speed *= 1.5;
+            enemy.speed *= 0.3;
+            infoDisplay.textContent = '¡Bola Naranja: Enemigo ralentizado y Aceleración!';
+        } else if (skill === 'Congelar Enemigo') {
+            ability.duration = 15;
+            enemy.speed = 0;
+            enemy.frozen = true;
+            player.shield = true;
+            setTimeout(() => { player.shield = false; }, 3000);
+            infoDisplay.textContent = '¡Bola Dorada: Enemigo CONGELADO + Escudo 3s!';
+        } else if (skill === 'Corte en Dos') {
+            ability.duration = 45;
+            enemy.x = -100;
+            enemy.y = -100;
+            enemy.speed = 0;
+            infoDisplay.textContent = '¡Bola Plateada: Enemigo partido en dos! 45s de paz.';
+        } else if (skill === 'Detener el Tiempo') {
+            ability.duration = 35;
+            gameState = 'paused';
+            clearInterval(spawnInterval);
+            spawnInterval = setInterval(spawnPowerUp, 1000);
+            infoDisplay.textContent = '¡Bola Morada: TIEMPO DETENIDO!';
+        }
+    }
+
+    function updateAbility() {
+        if (ability.active) {
+            ability.duration -= 1 / 60;
+            if (ability.duration <= 0) {
+                ability.active = false;
+                ability.cooldown = ability.maxCooldown;
+                if (player.skin === 'purple' && gameState === 'paused') {
+                    gameState = 'active';
+                    clearInterval(spawnInterval);
+                    spawnInterval = setInterval(spawnPowerUp, 4000);
+                }
+                const currentSkinData = SKINS[player.skin];
+                player.speed = 5 + (SHOP_ITEMS.speedBoost.purchased * 1) + currentSkinData.speedBonus;
+                enemy.speed = ability.originalEnemySpeed;
+                enemy.frozen = false;
+                if (player.skin === 'silver' && enemy.x < 0) {
+                    enemy.x = CANVAS_WIDTH / 2;
+                    enemy.y = CANVAS_HEIGHT / 2;
+                }
+                infoDisplay.textContent = 'Habilidad en recarga.';
+            }
+        } else if (ability.cooldown > 0) {
+            ability.cooldown -= 1 / 60;
+            if (ability.cooldown < 0) ability.cooldown = 0;
+        }
+    }
+
+    function saveGame() {
+        const gameData = {
+            score: score,
+            skinsOwned: player.skinsOwned,
+            currentSkin: player.skin,
+            speedBoosts: SHOP_ITEMS.speedBoost.purchased
+        };
+        localStorage.setItem('fugaResonanciaSave', JSON.stringify(gameData));
+    }
+
+    function loadGame() {
+        const savedData = localStorage.getItem('fugaResonanciaSave');
+        if (savedData) {
+            const gameData = JSON.parse(savedData);
+            score = gameData.score || 0;
+            player.skinsOwned = gameData.skinsOwned || ['green'];
+            player.skin = gameData.currentSkin || 'green';
+            SHOP_ITEMS.speedBoost.purchased = gameData.speedBoosts || 0;
+            const currentSkinData = SKINS[player.skin];
+            player.color = currentSkinData.color;
+            player.speed = 5 + (SHOP_ITEMS.speedBoost.purchased * 1) + currentSkinData.speedBonus;
+            ability.isAvailable = (player.skin!== 'green');
+            infoDisplay.textContent = `Progreso cargado. Puntos: ${score}`;
+        } else {
+            infoDisplay.textContent = 'Presiona INICIAR para comenzar';
+        }
+        updateDisplay();
+    }
+
+    function populateShop() {
+        updateDisplay();
+        let itemsHTML = '<h3>Mejoras Permanentes:</h3>';
+        const speedItem = SHOP_ITEMS.speedBoost;
+        const speedStatus = ` (+${speedItem.purchased} niveles)`;
+        const speedDisabled = score < speedItem.cost;
+        itemsHTML += `<div class="shop-item"><span>${speedItem.name} (${speedItem.cost} Puntos) ${speedStatus}</span><button onclick="buyItem('speedBoost')" ${speedDisabled? 'disabled' : ''}>COMPRAR</button></div>`;
+        itemsHTML += '<h3>Balls (Skins con Habilidad):</h3>';
+        for (const key in SKINS) {
+            if (key === 'green') continue;
+            const skin = SKINS[key];
+            const isOwned = player.skinsOwned.includes(key);
+            const isActive = player.skin === key;
+            const disabled = score < skin.cost &&!isOwned;
+            let buttonText = 'COMPRAR';
+            let description = `Habilidad: ${skin.ability}`;
+            if (skin.speedBonus > 0) description += ` | Velocidad Base +${skin.speedBonus}`;
+            if (skin.multiplier > 1.0) description += ` | Puntos +${((skin.multiplier - 1) * 100).toFixed(0)}%`;
+            if (isActive) buttonText = 'EQUIPADO';
+            else if (isOwned) buttonText = 'EQUIPAR';
+            itemsHTML += `<div class="shop-item"><span style="color: ${skin.color};"><strong>${skin.name}</strong> (${skin.cost} Puntos)</span><span style="font-size: 0.8em;">${description}</span><button onclick="handleSkinAction('${key}', ${skin.cost})" ${disabled? 'disabled' : ''}>${buttonText}</button></div>`;
+        }
+        document.getElementById('shop-items').innerHTML = itemsHTML;
+    }
+
+    function handleSkinAction(key, cost) {
+        const currentSkinData = SKINS[key];
+        if (!player.skinsOwned.includes(key)) {
+            if (score >= cost) {
+                score -= cost;
+                player.skinsOwned.push(key);
+                player.skin = key;
+                player.color = currentSkinData.color;
+                player.speed = 5 + (SHOP_ITEMS.speedBoost.purchased * 1) + currentSkinData.speedBonus;
+                ability.isAvailable = true;
+                ability.cooldown = 0;
+                saveGame();
+                populateShop();
+                infoDisplay.textContent = `¡Compraste y equipaste la ${currentSkinData.name}!`;
+            }
+        } else {
+            player.skin = key;
+            player.color = currentSkinData.color;
+            player.speed = 5 + (SHOP_ITEMS.speedBoost.purchased * 1) + currentSkinData.speedBonus;
+            ability.isAvailable = (key!== 'green');
+            ability.cooldown = 0;
+            ability.active = false;
+            saveGame();
+            populateShop();
+            infoDisplay.textContent = `¡Equipaste la ${currentSkinData.name}!`;
+        }
+    }
+
+    function buyItem(key) {
+        const item = SHOP_ITEMS[key];
+        const currentSkinData = SKINS[player.skin];
+        if (score >= item.cost) {
+            score -= item.cost;
+            if (key === 'speedBoost') {
+                SHOP_ITEMS.speedBoost.purchased++;
+                player.speed = 5 + (SHOP_ITEMS.speedBoost.purchased * 1) + currentSkinData.speedBonus;
+                infoDisplay.textContent = `¡Velocidad aumentada a ${player.speed.toFixed(1)}!`;
+            }
+            saveGame();
+            updateDisplay();
+            populateShop();
+        }
+    }
+
+    function showShop() {
+        if (gameState!== 'active' && gameState!== 'finished') return;
+        const wasActive = gameState === 'active';
+        gameState = 'paused';
+        if (wasActive) clearInterval(gameInterval);
+        shopView.style.display = 'block';
+        populateShop();
+        document.getElementById('controls-container').style.display = 'none';
+        btnStart.style.display = 'none';
+    }
+
+    function hideShop() {
+        if (gameState === 'paused') {
+            if (btnStart.textContent.includes('JUGAR')) {
+                 gameState = 'finished';
+            } else {
+                 gameState = 'active';
+                 gameInterval = setInterval(gameLoop, 1000 / 60);
+            }
+        }
+        shopView.style.display = 'none';
+        document.getElementById('controls-container').style.display = 'flex';
+        btnStart.style.display = 'block';
+    }
+
+    function drawBall(ball) {
+        ctx.fillStyle = ball.color;
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        if (ball === enemy && (enemy.frozen || ability.duration > 0 && player.skin === 'silver')) {
+            ctx.globalAlpha = 0.4;
+        } else {
+            ctx.globalAlpha = 1.0;
+        }
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+        if (ball === player && player.skin!== 'green') {
+            ctx.shadowColor = player.color;
+            ctx.shadowBlur = 10;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+        if (ball === player && player.shield) {
+            ctx.strokeStyle = 'rgba(255, 255, 0.8)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius + 5, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.lineWidth = 1;
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        powerUps.forEach(drawBall);
+        projectiles.forEach(drawBall);
+        drawBall(player);
+        drawBall(enemy);
+    }
+
+    function updateDisplay() {
+        timeVal.textContent = time.toFixed(1);
+        scoreVal.textContent = Math.floor(score);
+        roundVal.textContent = currentRound;
+        shopScoreVal.textContent = Math.floor(score);
+        if (ability.isAvailable) {
+            abilityBtn.style.display = 'block';
+            if (ability.cooldown > 0) {
+                abilityBtn.disabled = true;
+                abilityBtn.textContent = `RECARGA: ${ability.cooldown.toFixed(1)}s`;
+            } else if (ability.active) {
+                abilityBtn.disabled = true;
+                abilityBtn.textContent = `ACTIVO: ${SKINS[player.skin].ability} (${ability.duration.toFixed(1)}s)`;
+            } else {
+                abilityBtn.disabled = false;
+                abilityBtn.textContent = `HABILIDAD`;
+            }
+        } else {
+            abilityBtn.style.display = 'none';
+        }
+    }
+
+    function updatePlayer() {
+        if (gameState === 'paused' && player.skin!== 'purple') return;
+        player.x += player.dx;
+        player.y += player.dy;
+        player.x = Math.max(player.radius, Math.min(CANVAS_WIDTH - player.radius, player.x));
+        player.y = Math.max(player.radius, Math.min(CANVAS_HEIGHT - player.radius, player.y));
+    }
+
+    function updateEnemy() {
+        if (gameState!== 'active' || enemy.frozen || (player.skin === 'silver' && ability.active)) return;
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > 0) {
+            const vx = (dx / distance) * enemy.speed;
+            const vy = (dy / distance) * enemy.speed;
+            enemy.x += vx;
+            enemy.y += vy;
+        }
+    }
+
+    function updateProjectiles() {
+        if (gameState!== 'active') return;
+        let newProjectiles = [];
+        projectiles.forEach(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            if (p.x > -p.radius && p.x < CANVAS_WIDTH + p.radius && p.y > -p.radius && p.y < CANVAS_HEIGHT + p.radius) {
+                newProjectiles.push(p);
+            }
+        });
+        projectiles = newProjectiles;
+    }
+
+    function increaseDifficulty() {
+        if (gameState!== 'active') return;
+        const newRound = Math.floor(time / 60) + 1;
+
+        // BUG FIX: Multiplicador de ronda aumenta puntos
+        const roundMultiplier = 1 + (newRound - 1) * 0.25; // +25% por ronda
+
+        if (newRound!== currentRound) {
+            currentRound = newRound;
+            const skinMultiplier = SKINS[player.skin].multiplier;
+            const reward = Math.floor(50 * skinMultiplier * roundMultiplier);
+            sessionScore += reward;
+            playSound('round');
+            infoDisplay.textContent = `¡Ronda ${currentRound - 1} completada! +${reward} PUNTOS. x${roundMultiplier.toFixed(2)} bonus`;
+        }
+
+        if (!enemy.frozen &&!(player.skin === 'orange' && ability.active)) {
+            enemy.speed = enemy.baseSpeed + (currentRound * 0.5);
+        }
+        if (currentRound >= 5 &&!enemy.enraged) {
+            enemy.enraged = true;
+            enemy.radius = 20; enemy.color = '#ff4d4d'; enemy.baseSpeed = 2.5;
+            infoDisplay.textContent = '¡ALERTA! EL ENEMIGO ESTÁ ENFURECIDO Y LANZA ATAQUES DISTANTES.';
+        }
+        if (enemy.enraged) {
+            enemy.attackTimer++;
+            if (enemy.attackTimer % (60 * 0.75) === 0) {
+                launchProjectile();
+            }
+        }
+    }
+
+    function launchProjectile() {
+        if (enemy.frozen || (player.skin === 'silver' && ability.active) || gameState === 'paused') return;
+        playSound('shoot');
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance === 0) return;
+        const launchSpeed = 3;
+        projectiles.push({
+            x: enemy.x, y: enemy.y, radius: 5, color: '#ffdd88', speed: launchSpeed,
+            vx: (dx / distance) * launchSpeed, vy: (dy / distance) * launchSpeed, type: 'projectile'
+        });
+    }
+
+    function spawnPowerUp() {
+        if (powerUps.length > 0) return;
+        const x = Math.random() * (CANVAS_WIDTH - 40) + 20;
+        const y = Math.random() * (CANVAS_HEIGHT - 40) + 20;
+        let radius = 8;
+        let value = 150;
+        if (player.skin === 'purple' && ability.active) {
+            radius = 12;
+            value = 250;
+        }
+        powerUps.push({ x: x, y: y, radius: radius, color: '#00ccff', type: 'blue', value: value });
+    }
+
+    function checkCollisions() {
+        if (gameState!== 'active' && player.skin!== 'purple') return false;
+        const checkDistSq = (b1, b2) => (b1.x - b2.x)**2 + (b1.y - b2.y)**2 < (b1.radius + b2.radius)**2;
+        if (gameState === 'active' || (gameState === 'paused' && player.skin === 'purple' && (player.dx!== 0 || player.dy!== 0))) {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                if (checkDistSq(player, projectiles[i])) {
+                    if (player.shield) { player.shield = false; projectiles.splice(i, 1); return false; }
+                    endGame('Impacto de ataque distante'); return true;
+                }
+            }
+            if (checkDistSq(player, enemy)) {
+                if (player.skin === 'silver' && ability.active) return false;
+                if (player.shield) { player.shield = false; infoDisplay.textContent = '¡Escudo absorbido!'; return false; }
+                endGame('Atrapado por el enemigo'); return true;
+            }
+        }
+        const skinMultiplier = SKINS[player.skin].multiplier;
+        const roundMultiplier = 1 + (currentRound - 1) * 0.25;
+        for (let i = powerUps.length - 1; i >= 0; i--) {
+            const pu = powerUps[i];
+            if (checkDistSq(player, pu)) {
+                if (pu.type === 'blue') {
+                    sessionScore += Math.floor(pu.value * skinMultiplier * roundMultiplier);
+                    playSound('pickup');
+                }
+                powerUps.splice(i, 1); updateDisplay();
+            }
+        }
+        return false;
+    }
+
+    function gameLoop() {
+        if (gameState === 'ready' || gameState === 'finished') return;
+        time += 1 / 60;
+        const skinMultiplier = SKINS[player.skin].multiplier;
+        const roundMultiplier = 1 + (currentRound - 1) * 0.25;
+        const pointsPerSecond = 10;
+
+        // BUG FIX: Solo sumar a sessionScore, no a score directamente
+        if (time - lastScoreTime >= 1) {
+            sessionScore += Math.floor(pointsPerSecond * skinMultiplier * roundMultiplier);
+            lastScoreTime = time;
+        }
+
+        updateAbility();
+        updatePlayer();
+        updateEnemy();
+        updateProjectiles();
+        increaseDifficulty();
+        if (checkCollisions()) return;
+        draw();
+        updateDisplay();
+    }
+
+    function startGame() {
+        initAudio(); playSound('start');
+        if (gameInterval) clearInterval(gameInterval);
+        if (spawnInterval) clearInterval(spawnInterval);
+        loadGame();
+        time = 0;
+        sessionScore = 0; // BUG FIX: Resetear puntos de sesión
+        lastScoreTime = 0;
+        currentRound = 1;
+        enemy.speed = enemy.baseSpeed;
+        enemy.x = 50; enemy.y = 50; enemy.enraged = false; enemy.radius = 15; enemy.color = '#ff0000';
+        player.x = CANVAS_WIDTH / 2; player.y = CANVAS_HEIGHT / 2; player.dx = 0; player.dy = 0; player.shield = false;
+        const currentSkinData = SKINS[player.skin];
+        player.speed = 5 + (SHOP_ITEMS.speedBoost.purchased * 1) + currentSkinData.speedBonus;
+        player.color = currentSkinData.color;
+        ability.isAvailable = (player.skin!== 'green');
+        ability.active = false; ability.cooldown = 0;
+        powerUps = []; projectiles = [];
+        gameState = 'active'; timerRewardGiven = false;
+        gameInterval = setInterval(gameLoop, 1000 / 60);
+        spawnInterval = setInterval(spawnPowerUp, 4000);
+        btnStart.textContent = 'REINICIAR ESCAPE';
+        infoDisplay.textContent = '¡Usa el joystick para moverte!';
+        hideShop();
+    }
+
+    function endGame(reason) {
+        playSound('death');
+        gameState = 'finished';
+        clearInterval(gameInterval);
+        clearInterval(spawnInterval);
+        score += sessionScore; // BUG FIX: Sumar puntos ganados al total SOLO al final
+        saveGame();
+        infoDisplay.textContent = `FIN: ${reason}. Puntos Ganados: ${sessionScore}. Puntos Totales: ${Math.floor(score)}. ¡Ve a la Tienda!`;
+        btnStart.textContent = 'JUGAR DE NUEVO';
+        abilityBtn.style.display = 'none';
+        sessionScore = 0;
+    }
+
+    btnStart.addEventListener('click', startGame);
+    document.getElementById('shop-btn').addEventListener('click', showShop);
+    abilityBtn.addEventListener('click', activateAbility);
+    window.addEventListener('beforeunload', saveGame);
+
+    // Controles teclado siguen funcionando
+    let keys = {};
+    document.addEventListener('keydown', (e) => {
+        if (gameState!== 'active' &&!(gameState === 'paused' && player.skin === 'purple')) return;
+        keys[e.key] = true;
+        if (!joystickActive) {
+            if (keys['ArrowLeft'] || keys['a']) { player.dx = -player.speed; }
+            else if (keys['ArrowRight'] || keys['d']) { player.dx = player.speed; }
+            else player.dx = 0;
+            if (keys['ArrowUp'] || keys['w']) { player.dy = -player.speed; }
+            else if (keys['ArrowDown'] || keys['s']) { player.dy = player.speed; }
+            else player.dy = 0;
+        }
+        if ((keys[' '] || keys['Shift']) && ability.isAvailable && ability.cooldown === 0 &&!ability.active) {
+            activateAbility();
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        keys[e.key] = false;
+        if (!joystickActive) {
+            if (!(keys['ArrowLeft'] || keys['a'] || keys['ArrowRight'] || keys['d'])) player.dx = 0;
+            if (!(keys['ArrowUp'] || keys['w'] || keys['ArrowDown'] || keys['s'])) player.dy = 0;
+        }
+    });
+
+    window.onload = () => {
+        loadGame();
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.font = '16px Consolas';
+        ctx.fillText('Presiona INICIAR para comenzar', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    };
+
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "Fuga de Resonancia 1.2",
+  "short_name": "Fuga 1.2",
+  "version": "1.2",
+  "start_url": "index.html",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#1a1a2e",
+  "theme_color": "#00ff99",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
