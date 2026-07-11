@@ -1,12 +1,11 @@
 {
   "name": "Fuga de Resonancia 1.2",
-  "short_name": "Fuga 1.2",
-  "version": "1.2",
-  "start_url": "index.html",
-  "display": "fullscreen",
-  "orientation": "portrait",
+  "short_name": "FugaResonancia",
+  "start_url": "/Mi-nuevo-juego/index.html",
+  "display": "standalone",
   "background_color": "#1a1a2e",
   "theme_color": "#00ff99",
+  "scope": "/Mi-nuevo-juego/",
   "icons": [
     {
       "src": "icon-512.png",
