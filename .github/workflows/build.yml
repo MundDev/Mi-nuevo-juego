@@ -1,0 +1,26 @@
+name: Build APK v1.2
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Bubblewrap
+        run: npm i -g @bubblewrap/cli
+      - name: Build APK v1.2
+        run: |
+          echo "y" | bubblewrap init --manifest=https://MundDev.github.io/fuga-de-resonancia/manifest.json --directory=./
+          bubblewrap build
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FugaResonancia-v1.2-APK
+          path: app-release-signed.apk
