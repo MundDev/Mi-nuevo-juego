@@ -25,16 +25,13 @@ jobs:
       - name: Install Bubblewrap CLI
         run: npm i -g @bubblewrap/cli
 
-      - name: Build APK with Bubblewrap
+      - name: Build TWA directly
         run: |
-          bubblewrap init --manifest=https://MundDev.github.io/fuga-de-resonancia/manifest.json --directory=./ --skipPwaValidation --jdkPath=$JAVA_HOME
-          bubblewrap build --skipPwaValidation
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME }}
+          echo "Y" | bubblewrap build --manifest=https://MundDev.github.io/fuga-de-resonancia/manifest.json
 
       - name: Subir APK como artifact
         uses: actions/upload-artifact@v4
         with:
           name: FugaResonancia-v1.2-APK
-          path: app-release-signed.apk
+          path: ./app-release-signed.apk
           retention-days: 30
