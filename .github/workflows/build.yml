@@ -8,19 +8,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install Bubblewrap
+
+      - name: Install Bubblewrap CLI
         run: npm i -g @bubblewrap/cli
-      - name: Build APK v1.2
+
+      - name: Build APK with Bubblewrap
         run: |
-          echo "y" | bubblewrap init --manifest=https://MundDev.github.io/fuga-de-resonancia/manifest.json --directory=./
+          bubblewrap init --manifest=https://MundDev.github.io/fuga-de-resonancia/manifest.json --directory=./ --skipPwaValidation
           bubblewrap build
-      - name: Upload APK
+        env:
+          BUBBLEWRAP_SKIP_INTERACTIVE: true
+
+      - name: Subir APK como artifact
         uses: actions/upload-artifact@v4
         with:
           name: FugaResonancia-v1.2-APK
           path: app-release-signed.apk
+          retention-days: 30
